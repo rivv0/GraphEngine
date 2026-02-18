@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Decision Memory - Minimal</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #000;
+            color: #fff;
+            overflow: hidden;
+        }
+
+        /* Minimal search interface */
+        .search-container {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 90%;
+            max-width: 600px;
+            z-index: 100;
+            transition: all 0.3s ease;
+        }
+
+        .search-container.active {
+            top: 60px;
+            transform: translateX(-50%);
+        }
+
+        .search-box {
+            position: relative;
+        }
+
+        .search-input {
+            width: 100%;
+            padding: 20px 24px;
+            font-size: 18px;
+            background: #000;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 12px;
+            color: #fff;
+            outline: none;
+            transition: all 0.3s ease;
+        }
+
+        .search-input:focus {
+            background: #000;
+            border-color: #fff;
+            box-shadow: 0 0 20px rgba(255, 255, 255, 0.1);
+        }
+
+        .search-hint {
+            text-align: center;
+            margin-top: 16px;
+            font-size: 14px;
+            color: rgba(255, 255, 255, 0.4);
+        }
+
+        /* Graph canvas */
+        #graph-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 0;
+            transition: opacity 0.5s ease;
+        }
+
+        #graph-canvas.visible {
+            opacity: 1;
+        }
+
+        /* Decision nodes */
+        .decision-node {
+            position: absolute;
+            width: 12px;
+            height: 12px;
+            background: #fff;
+            border-radius: 50%;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 0 15px rgba(255, 255, 255, 0.3);
+        }
+
+        .decision-node:hover {
+            width: 16px;
+            height: 16px;
+            background: #fff;
+            box-shadow: 0 0 25px rgba(255, 255, 255, 0.6);
+        }
+
+        .decision-node.primary {
+            width: 20px;
+            height: 20px;
+            background: #fff;
+            box-shadow: 0 0 30px rgba(255, 255, 255, 0.8);
+        }
+
+        .decision-node.active {
+            background: #fff;
+            box-shadow: 0 0 40px rgba(255, 255, 255, 1);
+        }
+
+        /* Connection lines */
+        .connection-line {
+            position: absolute;
+            height: 1px;
+            background: linear-gradient(90deg, 
+                rgba(100, 200, 255, 0.3), 
+                rgba(100, 200, 255, 0.1));
+            transform-origin: left center;
+            pointer-events: none;
+        }
+
+        /* Decision detail panel */
+        .detail-panel {
+            position: fixed;
+            right: -400px;
+            top: 0;
+            width: 400px;
+            height: 100vh;
+            background: #000;
+            border-left: 1px solid rgba(255, 255, 255, 0.2);
+            padding: 40px 30px;
+            overflow-y: auto;
+            transition: right 0.3s ease;
+            z-index: 200;
+        }
+
+        .detail-panel.open {
+            right: 0;
+        }
+
+        .detail-close {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 32px;
+            height: 32px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            background: #000;
+            color: #fff;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 20px;
+            line-height: 1;
+            transition: all 0.2s ease;
+        }
+
+        .detail-close:hover {
+            background: #fff;
+            color: #000;
+        }
+
+        .detail-title {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #fff;
+        }
+
+        .detail-meta {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 24px;
+            font-size: 12px;
+        }
+
+        .confidence-badge {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-weight: 500;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            background: #000;
+            color: #fff;
+        }
+
+        .detail-section {
+            margin-bottom: 24px;
+        }
+
+        .detail-label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: rgba(255, 255, 255, 0.5);
+            margin-bottom: 8px;
+        }
+
+        .detail-content {
+            font-size: 14px;
+            line-height: 1.6;
+            color: rgba(255, 255, 255, 0.8);
+        }
+
+        .timeline-item {
+            position: relative;
+            padding-left: 30px;
+            margin-bottom: 24px;
+        }
+
+        .timeline-item::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 6px;
+            width: 8px;
+            height: 8px;
+            background: #fff;
+            border-radius: 50%;
+            z-index: 2;
+        }
+
+        .timeline-item::after {
+            content: '';
+            position: absolute;
+            left: 3px;
+            top: 14px;
+            width: 2px;
+            height: calc(100% + 10px);
+            background: #fff;
+            z-index: 1;
+        }
+
+        .timeline-item:last-child::after {
+            display: none;
+        }
+
+        .timeline-date {
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.4);
+            margin-bottom: 4px;
+        }
+
+        .timeline-text {
+            font-size: 13px;
+            color: rgba(255, 255, 255, 0.7);
+        }
+
+        /* Loading state */
+        .loading {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            color: rgba(255, 255, 255, 0.5);
+        }
+
+        .loading-spinner {
+            width: 40px;
+            height: 40px;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 16px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .detail-panel {
+                width: 100%;
+                right: -100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Search Interface -->
+    <div class="search-container" id="searchContainer">
+        <div class="search-box">
+            <input 
+                type="text" 
+                class="search-input" 
+                id="searchInput"
+                placeholder="Search for a component, decision, or feature..."
+                autocomplete="off"
+            >
+        </div>
+        <div class="search-hint">
+            Try: "Redis", "authentication", "microservices"
+        </div>
+    </div>
+
+    <!-- Graph Canvas -->
+    <canvas id="graph-canvas"></canvas>
+
+    <!-- Decision Detail Panel -->
+    <div class="detail-panel" id="detailPanel">
+        <button class="detail-close" id="closeDetail">&times;</button>
+        <div id="detailContent"></div>
+    </div>
+
+    <!-- Loading State -->
+    <div class="loading" id="loading" style="display: none;">
+        <div class="loading-spinner"></div>
+        <div>Analyzing decisions...</div>
+    </div>
+
+    <script>
+        class MinimalDecisionUI {
+            constructor() {
+                this.canvas = document.getElementById('graph-canvas');
+                this.ctx = this.canvas.getContext('2d');
+                this.searchInput = document.getElementById('searchInput');
+                this.searchContainer = document.getElementById('searchContainer');
+                this.detailPanel = document.getElementById('detailPanel');
+                this.loading = document.getElementById('loading');
+                
+                this.nodes = [];
+                this.connections = [];
+                this.activeNode = null;
+                this.animationFrame = null;
+                
+                this.init();
+            }
+
+            init() {
+                this.resizeCanvas();
+                window.addEventListener('resize', () => this.resizeCanvas());
+                
+                this.searchInput.addEventListener('input', (e) => this.handleSearch(e));
+                this.searchInput.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') this.performSearch();
+                });
+                
+                document.getElementById('closeDetail').addEventListener('click', () => {
+                    this.detailPanel.classList.remove('open');
+                    this.activeNode = null;
+                });
+                
+                this.startAnimation();
+            }
+
+            resizeCanvas() {
+                this.canvas.width = window.innerWidth;
+                this.canvas.height = window.innerHeight;
+            }
+
+            async handleSearch(e) {
+                const query = e.target.value.trim();
+                if (query.length < 2) {
+                    this.clearGraph();
+                    return;
+                }
+                
+                // Debounce search
+                clearTimeout(this.searchTimeout);
+                this.searchTimeout = setTimeout(() => this.performSearch(), 300);
+            }
+
+            async performSearch() {
+                const query = this.searchInput.value.trim();
+                if (!query) return;
+
+                this.loading.style.display = 'block';
+                this.searchContainer.classList.add('active');
+                this.canvas.classList.add('visible');
+
+                try {
+                    const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
+                    const results = await response.json();
+                    
+                    this.visualizeDecisions(results);
+                } catch (error) {
+                    console.error('Search failed:', error);
+                } finally {
+                    this.loading.style.display = 'none';
+                }
+            }
+
+            visualizeDecisions(results) {
+                this.clearGraph();
+                
+                if (results.length === 0) return;
+
+                const centerX = this.canvas.width / 2;
+                const centerY = this.canvas.height / 2;
+                const radius = Math.min(this.canvas.width, this.canvas.height) * 0.3;
+
+                // Create nodes in a circular pattern
+                results.forEach((result, index) => {
+                    const angle = (index / results.length) * Math.PI * 2;
+                    const x = centerX + Math.cos(angle) * radius;
+                    const y = centerY + Math.sin(angle) * radius;
+                    
+                    this.nodes.push({
+                        x, y,
+                        targetX: x,
+                        targetY: y,
+                        data: result,
+                        isPrimary: index === 0,
+                        radius: index === 0 ? 10 : 6
+                    });
+                });
+
+                // Create connections between ALL nodes (not just to center)
+                for (let i = 0; i < this.nodes.length; i++) {
+                    for (let j = i + 1; j < this.nodes.length; j++) {
+                        this.connections.push({
+                            from: this.nodes[i],
+                            to: this.nodes[j]
+                        });
+                    }
+                }
+
+                // Add click handlers
+                this.canvas.addEventListener('click', (e) => this.handleNodeClick(e));
+            }
+
+            handleNodeClick(e) {
+                const rect = this.canvas.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+
+                const clickedNode = this.nodes.find(node => {
+                    const dx = x - node.x;
+                    const dy = y - node.y;
+                    return Math.sqrt(dx * dx + dy * dy) < node.radius + 5;
+                });
+
+                if (clickedNode) {
+                    this.activeNode = clickedNode;
+                    this.showDecisionDetail(clickedNode.data);
+                }
+            }
+
+            async showDecisionDetail(result) {
+                this.detailPanel.classList.add('open');
+                
+                try {
+                    const response = await fetch(
+                        `/api/why/${encodeURIComponent(result.repository)}/${encodeURIComponent(result.component)}`
+                    );
+                    const explanation = await response.json();
+                    
+                    this.renderDetail(explanation);
+                } catch (error) {
+                    console.error('Failed to load detail:', error);
+                }
+            }
+
+            renderDetail(explanation) {
+                document.getElementById('detailContent').innerHTML = `
+                    <div class="detail-title">${explanation.component}</div>
+                    <div class="detail-meta">
+                        <span class="confidence-badge">
+                            ${explanation.summary.confidence} confidence
+                        </span>
+                        <span style="color: rgba(255,255,255,0.5)">
+                            ${explanation.evidence.total_events} events
+                        </span>
+                    </div>
+
+                    <div class="detail-section">
+                        <div class="detail-label">Summary</div>
+                        <div class="detail-content">${explanation.summary.text}</div>
+                    </div>
+
+                    ${explanation.decisions.length > 0 ? `
+                        <div class="detail-section">
+                            <div class="detail-label">Key Decisions</div>
+                            ${explanation.decisions.map(d => `
+                                <div class="detail-content" style="margin-bottom: 16px;">
+                                    <strong>${d.statement}</strong>
+                                    ${d.rationale ? `<br><span style="color: rgba(255,255,255,0.6);">${d.rationale}</span>` : ''}
+                                </div>
+                            `).join('')}
+                        </div>
+                    ` : ''}
+
+                    ${explanation.timeline.length > 0 ? `
+                        <div class="detail-section">
+                            <div class="detail-label">Timeline</div>
+                            ${explanation.timeline.slice(0, 5).map(item => `
+                                <div class="timeline-item">
+                                    <div class="timeline-date">${new Date(item.timestamp).toLocaleDateString()}</div>
+                                    <div class="timeline-text">${item.title}</div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    ` : ''}
+
+                    ${explanation.gaps.length > 0 ? `
+                        <div class="detail-section">
+                            <div class="detail-label">Information Gaps</div>
+                            <div class="detail-content" style="color: rgba(255,255,255,0.7);">
+                                ${explanation.gaps.join('<br>')}
+                            </div>
+                        </div>
+                    ` : ''}
+                `;
+            }
+
+            startAnimation() {
+                const animate = () => {
+                    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                    
+                    // Draw connections
+                    this.connections.forEach(conn => {
+                        const isActive = this.activeNode && 
+                            (conn.from === this.activeNode || conn.to === this.activeNode);
+                        
+                        this.ctx.beginPath();
+                        this.ctx.moveTo(conn.from.x, conn.from.y);
+                        this.ctx.lineTo(conn.to.x, conn.to.y);
+                        this.ctx.strokeStyle = isActive ? 
+                            'rgba(255, 255, 255, 0.6)' : 
+                            'rgba(255, 255, 255, 0.15)';
+                        this.ctx.lineWidth = isActive ? 2 : 1;
+                        this.ctx.stroke();
+                        
+                        // Add glow effect for active connections
+                        if (isActive) {
+                            this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+                            this.ctx.lineWidth = 4;
+                            this.ctx.stroke();
+                        }
+                    });
+                    
+                    // Draw nodes
+                    this.nodes.forEach(node => {
+                        const isActive = this.activeNode === node;
+                        
+                        // Glow effect
+                        const gradient = this.ctx.createRadialGradient(
+                            node.x, node.y, 0,
+                            node.x, node.y, node.radius * 3
+                        );
+                        gradient.addColorStop(0, isActive ? 
+                            'rgba(255, 255, 255, 0.4)' : 
+                            'rgba(255, 255, 255, 0.2)'
+                        );
+                        gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+                        
+                        this.ctx.fillStyle = gradient;
+                        this.ctx.fillRect(
+                            node.x - node.radius * 3,
+                            node.y - node.radius * 3,
+                            node.radius * 6,
+                            node.radius * 6
+                        );
+                        
+                        // Node circle
+                        this.ctx.beginPath();
+                        this.ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2);
+                        this.ctx.fillStyle = '#fff';
+                        this.ctx.fill();
+                        
+                        // Add ring for active node
+                        if (isActive) {
+                            this.ctx.beginPath();
+                            this.ctx.arc(node.x, node.y, node.radius + 4, 0, Math.PI * 2);
+                            this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+                            this.ctx.lineWidth = 1;
+                            this.ctx.stroke();
+                        }
+                    });
+                    
+                    this.animationFrame = requestAnimationFrame(animate);
+                };
+                
+                animate();
+            }
+
+            clearGraph() {
+                this.nodes = [];
+                this.connections = [];
+                this.activeNode = null;
+                this.canvas.classList.remove('visible');
+                this.searchContainer.classList.remove('active');
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+            }
+        }
+
+        // Initialize
+        new MinimalDecisionUI();
+    </script>
+</body>
+</html>

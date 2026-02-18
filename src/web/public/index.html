@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Why Engine - Engineering Decision Memory</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f8fafc;
+            color: #334155;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding: 40px 0;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            color: #1e293b;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            font-size: 1.1rem;
+            color: #64748b;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .search-section {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+
+        .search-box {
+            position: relative;
+            margin-bottom: 20px;
+        }
+
+        .search-input {
+            width: 100%;
+            padding: 16px 20px;
+            font-size: 1.1rem;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .search-input:focus {
+            border-color: #3b82f6;
+        }
+
+        .search-btn {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 16px 32px;
+            font-size: 1rem;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .search-btn:hover {
+            background: #2563eb;
+        }
+
+        .search-btn:disabled {
+            background: #94a3b8;
+            cursor: not-allowed;
+        }
+
+        .results-section {
+            display: none;
+        }
+
+        .results-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .results-count {
+            color: #64748b;
+            font-size: 0.9rem;
+        }
+
+        .result-card {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 16px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            cursor: pointer;
+            transition: all 0.2s;
+            border-left: 4px solid transparent;
+        }
+
+        .result-card:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            transform: translateY(-1px);
+        }
+
+        .result-card.pull-request {
+            border-left-color: #10b981;
+        }
+
+        .result-card.commit {
+            border-left-color: #f59e0b;
+        }
+
+        .result-card.comment {
+            border-left-color: #8b5cf6;
+        }
+
+        .result-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 12px;
+        }
+
+        .result-title {
+            font-weight: 600;
+            color: #1e293b;
+            margin-bottom: 4px;
+        }
+
+        .result-meta {
+            display: flex;
+            gap: 12px;
+            font-size: 0.85rem;
+            color: #64748b;
+        }
+
+        .result-type {
+            background: #f1f5f9;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+
+        .result-description {
+            color: #475569;
+            margin-top: 8px;
+            line-height: 1.5;
+        }
+
+        .explanation-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+        }
+
+        .modal-content {
+            background: white;
+            width: 90%;
+            max-width: 800px;
+            margin: 50px auto;
+            border-radius: 12px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .modal-header {
+            padding: 24px;
+            border-bottom: 1px solid #e2e8f0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-title {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #1e293b;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            font-size: 1.5rem;
+            cursor: pointer;
+            color: #64748b;
+        }
+
+        .modal-body {
+            padding: 24px;
+        }
+
+        .explanation-summary {
+            background: #f8fafc;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 24px;
+            border-left: 4px solid #3b82f6;
+        }
+
+        .confidence-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 500;
+            margin-left: 12px;
+        }
+
+        .confidence-high { background: #dcfce7; color: #166534; }
+        .confidence-medium { background: #fef3c7; color: #92400e; }
+        .confidence-low { background: #fee2e2; color: #991b1b; }
+        .confidence-none { background: #f1f5f9; color: #475569; }
+
+        .timeline {
+            margin-top: 24px;
+        }
+
+        .timeline-item {
+            display: flex;
+            margin-bottom: 20px;
+            padding-bottom: 20px;
+            position: relative;
+        }
+
+        .timeline-marker {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 16px;
+            margin-top: 6px;
+            flex-shrink: 0;
+            position: relative;
+            z-index: 2;
+        }
+
+        .timeline-marker.event { background: #3b82f6; }
+        .timeline-marker.decision { background: #10b981; }
+
+        .timeline-marker::after {
+            content: '';
+            position: absolute;
+            left: 5px;
+            top: 12px;
+            width: 2px;
+            height: 60px;
+            background: #3b82f6;
+            z-index: 1;
+        }
+
+        .timeline-item:last-child .timeline-marker::after {
+            display: none;
+        }
+
+        .timeline-content {
+            flex: 1;
+        }
+
+        .timeline-title {
+            font-weight: 500;
+            color: #1e293b;
+            margin-bottom: 4px;
+        }
+
+        .timeline-meta {
+            font-size: 0.85rem;
+            color: #64748b;
+            margin-bottom: 8px;
+        }
+
+        .timeline-description {
+            color: #475569;
+            font-size: 0.9rem;
+        }
+
+        .gaps-section {
+            background: #fef3c7;
+            border: 1px solid #f59e0b;
+            border-radius: 8px;
+            padding: 16px;
+            margin-top: 20px;
+        }
+
+        .gaps-title {
+            font-weight: 600;
+            color: #92400e;
+            margin-bottom: 8px;
+        }
+
+        .gaps-list {
+            list-style: none;
+        }
+
+        .gaps-list li {
+            color: #92400e;
+            margin-bottom: 4px;
+        }
+
+        .gaps-list li:before {
+            content: "⚠️ ";
+            margin-right: 8px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #64748b;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3b82f6;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 8px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #64748b;
+        }
+
+        .empty-state h3 {
+            margin-bottom: 8px;
+            color: #475569;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Why Engine</h1>
+            <p>Trace any code component back to the decisions that shaped it. Search for files, functions, or features to understand why they exist.</p>
+        </div>
+
+        <div class="search-section">
+            <div class="search-box">
+                <input 
+                    type="text" 
+                    class="search-input" 
+                    placeholder="Search for a component, file, function, or feature..."
+                    id="searchInput"
+                >
+            </div>
+            <button class="search-btn" id="searchBtn">
+                Search Components
+            </button>
+        </div>
+
+        <div class="results-section" id="resultsSection">
+            <div class="results-header">
+                <h2>Search Results</h2>
+                <span class="results-count" id="resultsCount"></span>
+            </div>
+            <div id="resultsContainer"></div>
+        </div>
+    </div>
+
+    <!-- Explanation Modal -->
+    <div class="explanation-modal" id="explanationModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title" id="modalTitle">Why does this exist?</h2>
+                <button class="close-btn" id="closeModal">&times;</button>
+            </div>
+            <div class="modal-body" id="modalBody">
+                <!-- Content will be populated by JavaScript -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class WhyEngineUI {
+            constructor() {
+                this.searchInput = document.getElementById('searchInput');
+                this.searchBtn = document.getElementById('searchBtn');
+                this.resultsSection = document.getElementById('resultsSection');
+                this.resultsContainer = document.getElementById('resultsContainer');
+                this.resultsCount = document.getElementById('resultsCount');
+                this.modal = document.getElementById('explanationModal');
+                this.modalTitle = document.getElementById('modalTitle');
+                this.modalBody = document.getElementById('modalBody');
+                this.closeModal = document.getElementById('closeModal');
+
+                this.setupEventListeners();
+            }
+
+            setupEventListeners() {
+                this.searchBtn.addEventListener('click', () => this.performSearch());
+                this.searchInput.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') this.performSearch();
+                });
+                this.closeModal.addEventListener('click', () => this.hideModal());
+                this.modal.addEventListener('click', (e) => {
+                    if (e.target === this.modal) this.hideModal();
+                });
+            }
+
+            async performSearch() {
+                const query = this.searchInput.value.trim();
+                if (!query) return;
+
+                this.showLoading();
+                
+                try {
+                    const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
+                    const results = await response.json();
+                    
+                    this.displayResults(results, query);
+                } catch (error) {
+                    console.error('Search failed:', error);
+                    this.showError('Search failed. Please try again.');
+                }
+            }
+
+            showLoading() {
+                this.resultsSection.style.display = 'block';
+                this.resultsContainer.innerHTML = `
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        Searching for components...
+                    </div>
+                `;
+            }
+
+            displayResults(results, query) {
+                if (results.length === 0) {
+                    this.resultsContainer.innerHTML = `
+                        <div class="empty-state">
+                            <h3>No components found</h3>
+                            <p>Try searching for a different term or check if the repository data has been ingested.</p>
+                        </div>
+                    `;
+                    this.resultsCount.textContent = '';
+                    return;
+                }
+
+                this.resultsCount.textContent = `${results.length} components found`;
+                
+                this.resultsContainer.innerHTML = results.map(result => `
+                    <div class="result-card ${result.type}" onclick="window.whyUI.explainComponent('${result.repository}', '${result.component}')">
+                        <div class="result-header">
+                            <div>
+                                <div class="result-title">${result.title}</div>
+                                <div class="result-meta">
+                                    <span class="result-type">${result.type}</span>
+                                    <span>${result.repository}</span>
+                                    <span>${result.author}</span>
+                                    <span>${this.formatDate(result.timestamp)}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="result-description">
+                            ${this.truncateText(result.description, 150)}
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            async explainComponent(repository, component) {
+                this.showModal();
+                this.modalTitle.textContent = `Why does "${component}" exist?`;
+                this.modalBody.innerHTML = `
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        Analyzing decision history...
+                    </div>
+                `;
+
+                try {
+                    const response = await fetch(`/api/why/${encodeURIComponent(repository)}/${encodeURIComponent(component)}`);
+                    const explanation = await response.json();
+                    
+                    this.displayExplanation(explanation);
+                } catch (error) {
+                    console.error('Explanation failed:', error);
+                    this.modalBody.innerHTML = `
+                        <div class="empty-state">
+                            <h3>Failed to generate explanation</h3>
+                            <p>Please try again or check if the decision data has been extracted.</p>
+                        </div>
+                    `;
+                }
+            }
+
+            displayExplanation(explanation) {
+                const confidenceClass = `confidence-${explanation.summary.confidence}`;
+                
+                this.modalBody.innerHTML = `
+                    <div class="explanation-summary">
+                        <h3>Summary
+                            <span class="confidence-badge ${confidenceClass}">
+                                ${explanation.summary.confidence} confidence
+                            </span>
+                        </h3>
+                        <p>${explanation.summary.text}</p>
+                        ${explanation.summary.primary_decision_maker ? 
+                            `<p><strong>Primary decision maker:</strong> ${explanation.summary.primary_decision_maker}</p>` : ''}
+                    </div>
+
+                    ${explanation.decisions.length > 0 ? `
+                        <div class="decisions-section">
+                            <h3>Key Decisions</h3>
+                            ${explanation.decisions.map(decision => `
+                                <div style="background: #f8fafc; padding: 16px; border-radius: 8px; margin: 12px 0;">
+                                    <h4>${decision.statement}</h4>
+                                    ${decision.rationale ? `<p><strong>Rationale:</strong> ${decision.rationale}</p>` : ''}
+                                    ${decision.problem ? `<p><strong>Problem:</strong> ${decision.problem}</p>` : ''}
+                                    <div style="font-size: 0.85rem; color: #64748b; margin-top: 8px;">
+                                        <span>Type: ${decision.type}</span> • 
+                                        <span>Scope: ${decision.scope}</span> • 
+                                        <span>Reversibility: ${decision.reversibility}</span>
+                                        ${decision.related_pr ? ` • <a href="https://github.com/${explanation.repository}/pull/${decision.related_pr}" target="_blank">PR #${decision.related_pr}</a>` : ''}
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    ` : ''}
+
+                    ${explanation.timeline.length > 0 ? `
+                        <div class="timeline">
+                            <h3>Decision Timeline</h3>
+                            ${explanation.timeline.slice(0, 10).map(item => `
+                                <div class="timeline-item">
+                                    <div class="timeline-marker ${item.type}"></div>
+                                    <div class="timeline-content">
+                                        <div class="timeline-title">${item.title}</div>
+                                        <div class="timeline-meta">
+                                            ${item.author} • ${this.formatDate(item.timestamp)} • ${item.type}
+                                        </div>
+                                        ${item.content ? `<div class="timeline-description">${this.truncateText(item.content, 200)}</div>` : ''}
+                                        ${item.source_url ? `<a href="${item.source_url}" target="_blank" style="font-size: 0.85rem;">View source</a>` : ''}
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    ` : ''}
+
+                    <div style="margin-top: 24px; font-size: 0.9rem; color: #64748b;">
+                        <strong>Evidence:</strong> 
+                        ${explanation.evidence.total_events} events analyzed • 
+                        ${explanation.evidence.decision_count} decisions found • 
+                        Data freshness: ${explanation.evidence.data_freshness.level}
+                        ${explanation.evidence.data_freshness.days_ago ? ` (${explanation.evidence.data_freshness.days_ago} days ago)` : ''}
+                    </div>
+
+                    ${explanation.gaps.length > 0 ? `
+                        <div class="gaps-section">
+                            <div class="gaps-title">Information Gaps</div>
+                            <ul class="gaps-list">
+                                ${explanation.gaps.map(gap => `<li>${gap}</li>`).join('')}
+                            </ul>
+                        </div>
+                    ` : ''}
+                `;
+            }
+
+            showModal() {
+                this.modal.style.display = 'block';
+                document.body.style.overflow = 'hidden';
+            }
+
+            hideModal() {
+                this.modal.style.display = 'none';
+                document.body.style.overflow = 'auto';
+            }
+
+            showError(message) {
+                this.resultsContainer.innerHTML = `
+                    <div class="empty-state">
+                        <h3>Error</h3>
+                        <p>${message}</p>
+                    </div>
+                `;
+            }
+
+            formatDate(timestamp) {
+                return new Date(timestamp).toLocaleDateString('en-US', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric'
+                });
+            }
+
+            truncateText(text, maxLength) {
+                if (text.length <= maxLength) return text;
+                return text.substring(0, maxLength) + '...';
+            }
+        }
+
+        // Initialize the UI
+        window.whyUI = new WhyEngineUI();
+    </script>
+</body>
+</html>
