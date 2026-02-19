@@ -1,16 +1,4 @@
-/**
- * Phase 3: Decision Extraction
- * 
- * Uses LLMs to extract structured decisions from normalized events.
- * 
- * Key principles:
- * - Only process high-confidence candidates from Phase 2
- * - Extract structured decision data, not summaries
- * - Maintain traceability to source events
- * - Handle uncertainty explicitly (confidence scores)
- * 
- * This creates the foundation for the knowledge graph in Phase 4.
- */
+
 
 export class DecisionExtractor {
   constructor(eventStore, llmProvider = null) {

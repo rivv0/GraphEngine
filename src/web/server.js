@@ -8,12 +8,7 @@ import { CodeTracer } from './code-tracer.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-/**
- * Web-based "Why does this exist?" system
- * 
- * Enables engineers to trace any code/component back to the decisions that shaped it.
- * Core principle: Surface only recorded facts, never guess or invent explanations.
- */
+
 export class WhyServer {
   constructor(config = {}) {
     this.app = express();
