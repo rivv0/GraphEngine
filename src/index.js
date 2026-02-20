@@ -42,7 +42,7 @@ class DecisionMemorySystem {
   async ingestRepository(owner, repo, customOptions = {}) {
     console.log(`\n📊 Phase 1: OPTIMIZED Data Ingestion`);
     console.log(`Target: ${owner}/${repo}`);
-    console.log(`Strategy: Fast capture with smart limits`);
+    console.log(`Strategy: Fast capture with smart limits.`);
     
     const startTime = Date.now();
     
@@ -58,7 +58,7 @@ class DecisionMemorySystem {
     const options = { ...defaultOptions, ...customOptions };
     
     console.log(`📊 Limits: ${options.maxPRs} PRs, ${options.maxCommits} commits, ${options.maxIssues} issues`);
-    if (options.skipComments) console.log(`⚡ Skipping comments for faster ingestion`);
+    if (options.skipComments) console.log(`⚡ Skipping comments for faster ingestion.`);
     
     await this.githubIngester.ingestRepository(owner, repo, options);
     const duration = ((Date.now() - startTime) / 1000).toFixed(1);
