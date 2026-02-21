@@ -11,13 +11,14 @@ export class WhyEngine {
 
     const relatedEvents = await this.findRelatedEvents(repository, componentName);
     const decisions = await this.findRelatedDecisions(repository, componentName);
-    
+
     return {
       component: componentName,
       repository: repository,
       summary: this.generateSummary(decisions, relatedEvents),
       decisions: decisions.map(d => this.formatDecision(d)),
       timeline: await this.buildTimeline(relatedEvents, decisions),
+      graph: this.buildComponentGraph(componentName, relatedEvents, decisions),
       evidence: {
         total_events: relatedEvents.length,
         decision_count: decisions.length,
@@ -32,7 +33,7 @@ export class WhyEngine {
   async findRelatedEvents(repository, componentName) {
     const searchTerms = [componentName, componentName.toLowerCase()];
     const allEvents = [];
-    
+
     for (const term of searchTerms) {
       const events = await this.eventStore.searchEvents(term, {
         repository,
@@ -41,7 +42,7 @@ export class WhyEngine {
       allEvents.push(...events);
     }
 
-    const uniqueEvents = allEvents.filter((event, index, self) => 
+    const uniqueEvents = allEvents.filter((event, index, self) =>
       index === self.findIndex(e => e.id === event.id)
     );
 
@@ -75,21 +76,21 @@ export class WhyEngine {
   calculateRelevanceScore(event, componentName) {
     const content = `${event.data.title || ''} ${event.data.body || event.data.message || ''}`.toLowerCase();
     const component = componentName.toLowerCase();
-    
+
     let score = 0;
-    
+
     if ((event.data.title || '').toLowerCase().includes(component)) {
       score += 0.8;
     }
-    
+
     if (content.includes(component)) {
       score += 0.6;
     }
-    
+
     if (event.type === 'pull_request') {
       score += 0.2;
     }
-    
+
     return Math.min(score, 1.0);
   }
 
@@ -112,7 +113,7 @@ export class WhyEngine {
 
     const primaryDecision = decisions[0];
     let summary = primaryDecision.decision_statement;
-    
+
     if (primaryDecision.rationale) {
       summary += ` Rationale: ${primaryDecision.rationale}`;
     }
@@ -141,7 +142,7 @@ export class WhyEngine {
 
   async buildTimeline(events, decisions) {
     const timelineItems = [];
-    
+
     events.forEach(event => {
       timelineItems.push({
         type: 'event',
@@ -153,7 +154,7 @@ export class WhyEngine {
         source_url: this.generateSourceUrl(event)
       });
     });
-    
+
     decisions.forEach(decision => {
       timelineItems.push({
         type: 'decision',
@@ -163,15 +164,98 @@ export class WhyEngine {
         rationale: decision.rationale
       });
     });
-    
+
     return timelineItems.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+  }
+
+  buildComponentGraph(componentName, events, decisions) {
+    const nodes = [];
+    const edges = [];
+
+    const nodeIds = new Set();
+    const addNode = (id, label, group, title) => {
+      if (!nodeIds.has(id)) {
+        nodes.push({ id, label: this.truncateText(label, 30), group, title });
+        nodeIds.add(id);
+      }
+    };
+
+    const edgeIds = new Set();
+    const addEdge = (from, to, label) => {
+      const id = `${from}-${to}`;
+      if (!edgeIds.has(id) && nodeIds.has(from) && nodeIds.has(to)) {
+        edges.push({ from, to, label });
+        edgeIds.add(id);
+      }
+    };
+
+    // Add Central Component Node
+    const centerId = `component-${componentName}`;
+    addNode(centerId, componentName, 'component', `Target Component: ${componentName}`);
+
+    // Decisions
+    decisions.forEach(decision => {
+      const decisionId = `decision-${decision.id}`;
+      addNode(decisionId, decision.decision_statement, 'decision', decision.rationale || 'Decision');
+      addEdge(decisionId, centerId, 'affects');
+
+      if (decision.related_pr_number) {
+        addEdge(decisionId, `pr-${decision.related_pr_number}`, 'made in');
+      }
+
+      // Connect decision makers
+      if (decision.primary_decision_maker) {
+        const authorId = `author-${decision.primary_decision_maker}`;
+        addNode(authorId, decision.primary_decision_maker, 'author', `User: ${decision.primary_decision_maker}`);
+        addEdge(authorId, decisionId, 'decided');
+      }
+    });
+
+    // Events
+    events.forEach(event => {
+      let eventId;
+      switch (event.type) {
+        case 'pull_request':
+          eventId = `pr-${event.data.number}`;
+          addNode(eventId, `PR #${event.data.number}`, 'pull_request', event.data.title);
+          addEdge(eventId, centerId, 'modifies');
+          break;
+        case 'commit':
+          eventId = `commit-${event.data.sha.substring(0, 7)}`;
+          addNode(eventId, event.data.message.split('\n')[0], 'commit', event.data.message);
+          addEdge(eventId, centerId, 'touches');
+          break;
+        case 'issue':
+          eventId = `issue-${event.data.number}`;
+          addNode(eventId, `Issue #${event.data.number}`, 'issue', event.data.title);
+          addEdge(eventId, centerId, 'references');
+          break;
+        case 'pr_comment':
+        case 'pr_review':
+          // Connect to PR if available instead of center directly
+          if (nodeIds.has(`pr-${event.data.pr_number}`)) {
+            const authorId = `author-${event.data.author}`;
+            addNode(authorId, event.data.author, 'author', `User: ${event.data.author}`);
+            addEdge(authorId, `pr-${event.data.pr_number}`, 'commented on');
+          }
+          break;
+      }
+
+      if (event.data.author && eventId) {
+        const authorId = `author-${event.data.author}`;
+        addNode(authorId, event.data.author, 'author', `User: ${event.data.author}`);
+        addEdge(authorId, eventId, 'authored');
+      }
+    });
+
+    return { nodes, edges };
   }
 
   calculateConfidence(decisions, events) {
     if (decisions.length === 0) {
       return events.length > 0 ? 0.3 : 0.0;
     }
-    
+
     const avgDecisionConfidence = decisions.reduce((sum, d) => sum + d.extraction_confidence, 0) / decisions.length;
     return avgDecisionConfidence;
   }
@@ -180,18 +264,18 @@ export class WhyEngine {
     if (events.length === 0) {
       return { level: 'none', last_activity: null };
     }
-    
-    const latestEvent = events.reduce((latest, event) => 
+
+    const latestEvent = events.reduce((latest, event) =>
       new Date(event.timestamp) > new Date(latest.timestamp) ? event : latest
     );
-    
+
     const daysSinceLastActivity = (Date.now() - new Date(latestEvent.timestamp)) / (1000 * 60 * 60 * 24);
-    
+
     let level = 'stale';
     if (daysSinceLastActivity < 30) level = 'fresh';
     else if (daysSinceLastActivity < 180) level = 'recent';
     else if (daysSinceLastActivity < 365) level = 'aging';
-    
+
     return {
       level,
       last_activity: latestEvent.timestamp,
@@ -201,15 +285,15 @@ export class WhyEngine {
 
   identifyGaps(decisions, events) {
     const gaps = [];
-    
+
     if (decisions.length === 0) {
       gaps.push("No structured decisions extracted");
     }
-    
+
     if (events.length === 0) {
       gaps.push("No related discussions found");
     }
-    
+
     return gaps;
   }
 
@@ -230,13 +314,133 @@ export class WhyEngine {
 
   generateSourceUrl(event) {
     const repo = event.repository;
-    
+
     if (event.type === 'pull_request') {
       return `https://github.com/${repo}/pull/${event.data.number}`;
     } else if (event.type === 'commit') {
       return `https://github.com/${repo}/commit/${event.data.sha}`;
     }
-    
+
     return `https://github.com/${repo}`;
+  }
+
+  async getGraphData(repository) {
+    console.log(`🌐 Generating graph data for: ${repository}`);
+
+    // Fetch all events and decisions for this repository
+    const events = await this.eventStore.getEvents({ repository, limit: 1000 });
+    const decisions = this.eventStore.db.prepare(`
+        SELECT * FROM decisions 
+        WHERE repository = ?
+      `).all(repository) || [];
+
+    const nodes = [];
+    const edges = [];
+
+    const nodeIds = new Set();
+    const addNode = (id, label, group, title) => {
+      if (!nodeIds.has(id)) {
+        nodes.push({ id, label: this.truncateText(label, 30), group, title });
+        nodeIds.add(id);
+      }
+    };
+
+    const edgeIds = new Set();
+    const addEdge = (from, to, label) => {
+      const id = `${from}-${to}`;
+      if (!edgeIds.has(id) && nodeIds.has(from) && nodeIds.has(to)) {
+        edges.push({ from, to, label });
+        edgeIds.add(id);
+      }
+    };
+
+    // 1. First Pass: Create all event nodes
+    for (const event of events) {
+      switch (event.type) {
+        case 'pull_request':
+          addNode(
+            `pr-${event.data.number}`,
+            `PR #${event.data.number}`,
+            'pull_request',
+            event.data.title
+          );
+          break;
+        case 'commit':
+          addNode(
+            `commit-${event.data.sha.substring(0, 7)}`,
+            event.data.message.split('\\n')[0],
+            'commit',
+            event.data.message
+          );
+          break;
+        case 'issue':
+          addNode(
+            `issue-${event.data.number}`,
+            `Issue #${event.data.number}`,
+            'issue',
+            event.data.title
+          );
+          break;
+      }
+    }
+
+    // 2. Second Pass: Decisions
+    for (const decision of decisions) {
+      const decisionId = `decision-${decision.id}`;
+      addNode(
+        decisionId,
+        decision.decision_statement,
+        'decision',
+        decision.rationale || 'Decision'
+      );
+
+      // Edge from decision to PR (if known)
+      if (decision.related_pr_number) {
+        addEdge(decisionId, `pr-${decision.related_pr_number}`, 'made in');
+      }
+    }
+
+    // 3. Third Pass: Relationships (Commits to PRs, Comments to PRs/Issues)
+    for (const event of events) {
+      if (event.type === 'pr_comment' || event.type === 'pr_review') {
+        if (nodeIds.has(`pr-${event.data.pr_number}`)) {
+          // We don't always create nodes for every single comment to keep the graph clean,
+          // but we could. For now, we'll just link the comment author to the PR.
+          const authorId = `author-${event.data.author}`;
+          addNode(authorId, event.data.author, 'author', `User: ${event.data.author}`);
+          addEdge(authorId, `pr-${event.data.pr_number}`, 'commented on');
+        }
+      } else if (event.type === 'pull_request') {
+        const authorId = `author-${event.data.author}`;
+        addNode(authorId, event.data.author, 'author', `User: ${event.data.author}`);
+        addEdge(authorId, `pr-${event.data.number}`, 'opened');
+      } else if (event.type === 'commit') {
+        const authorId = `author-${event.data.author}`;
+        addNode(authorId, event.data.author, 'author', `User: ${event.data.author}`);
+        addEdge(authorId, `commit-${event.data.sha.substring(0, 7)}`, 'authored');
+
+        // Try to link commits to PRs (this is simplistic; typically commits belong to PRs)
+        // GitHub API doesn't always provide this cleanly in the events we stored, 
+        // but if we had issue/pr references in the commit message:
+        const msg = event.data.message || '';
+        const prMatch = msg.match(/#(\\d+)/);
+        if (prMatch) {
+          addEdge(`commit-${event.data.sha.substring(0, 7)}`, `pr-${prMatch[1]}`, 'references');
+          addEdge(`commit-${event.data.sha.substring(0, 7)}`, `issue-${prMatch[1]}`, 'references');
+        }
+      } else if (event.type === 'issue') {
+        const authorId = `author-${event.data.author}`;
+        addNode(authorId, event.data.author, 'author', `User: ${event.data.author}`);
+        addEdge(authorId, `issue-${event.data.number}`, 'opened');
+      }
+    }
+
+    return { nodes, edges };
+  }
+
+  truncateText(text, maxLength) {
+    if (!text) return '';
+    if (text.length <= maxLength) return text;
+    return text.substring(0, maxLength) + '...';
   }
 }

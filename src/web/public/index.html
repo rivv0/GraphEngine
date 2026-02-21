@@ -1,9 +1,12 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Why Engine - Engineering Decision Memory</title>
+    <!-- Vis.js for Graph Visualization -->
+    <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -30,7 +33,7 @@
             padding: 40px 0;
             background: white;
             border-radius: 12px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
         }
 
         .header h1 {
@@ -50,7 +53,7 @@
             background: white;
             padding: 30px;
             border-radius: 12px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
             margin-bottom: 30px;
         }
 
@@ -114,14 +117,14 @@
             border-radius: 8px;
             padding: 20px;
             margin-bottom: 16px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
             cursor: pointer;
             transition: all 0.2s;
             border-left: 4px solid transparent;
         }
 
         .result-card:hover {
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
             transform: translateY(-1px);
         }
 
@@ -178,7 +181,7 @@
             left: 0;
             width: 100%;
             height: 100%;
-            background: rgba(0,0,0,0.5);
+            background: rgba(0, 0, 0, 0.5);
             z-index: 1000;
         }
 
@@ -235,10 +238,25 @@
             margin-left: 12px;
         }
 
-        .confidence-high { background: #dcfce7; color: #166534; }
-        .confidence-medium { background: #fef3c7; color: #92400e; }
-        .confidence-low { background: #fee2e2; color: #991b1b; }
-        .confidence-none { background: #f1f5f9; color: #475569; }
+        .confidence-high {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .confidence-medium {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .confidence-low {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .confidence-none {
+            background: #f1f5f9;
+            color: #475569;
+        }
 
         .timeline {
             margin-top: 24px;
@@ -262,8 +280,13 @@
             z-index: 2;
         }
 
-        .timeline-marker.event { background: #3b82f6; }
-        .timeline-marker.decision { background: #10b981; }
+        .timeline-marker.event {
+            background: #3b82f6;
+        }
+
+        .timeline-marker.decision {
+            background: #10b981;
+        }
 
         .timeline-marker::after {
             content: '';
@@ -347,8 +370,13 @@
         }
 
         @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
         }
 
         .empty-state {
@@ -363,33 +391,45 @@
         }
     </style>
 </head>
+
 <body>
     <div class="container">
         <div class="header">
             <h1>Why Engine</h1>
-            <p>Trace any code component back to the decisions that shaped it. Search for files, functions, or features to understand why they exist.</p>
+            <p>Trace any code component back to the decisions that shaped it. Search for files, functions, or features
+                to understand why they exist.</p>
         </div>
 
         <div class="search-section">
             <div class="search-box">
-                <input 
-                    type="text" 
-                    class="search-input" 
-                    placeholder="Search for a component, file, function, or feature..."
-                    id="searchInput"
-                >
+                <input type="text" class="search-input"
+                    placeholder="Search for a component, file, function, or feature..." id="searchInput">
             </div>
-            <button class="search-btn" id="searchBtn">
-                Search Components
-            </button>
+            <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                <button class="search-btn" id="searchBtn" style="flex: 1;">
+                    Search Components
+                </button>
+                <button class="search-btn" id="graphBtn" style="flex: 1; background: #8b5cf6;">
+                    View Repository Graph
+                </button>
+            </div>
+            <div id="repoSelectContainer" style="display: none; margin-top: 15px;">
+                <label for="repoSelect" style="font-weight: 500; margin-right: 10px;">Select Repository:</label>
+                <select id="repoSelect" style="padding: 10px; border-radius: 8px; border: 1px solid #e2e8f0;"></select>
+            </div>
         </div>
 
         <div class="results-section" id="resultsSection">
             <div class="results-header">
-                <h2>Search Results</h2>
+                <h2 id="resultsHeading">Search Results</h2>
                 <span class="results-count" id="resultsCount"></span>
             </div>
             <div id="resultsContainer"></div>
+
+            <!-- Graph Container -->
+            <div id="graphContainer"
+                style="display: none; width: 100%; height: 600px; border: 1px solid #e2e8f0; border-radius: 8px; background: white; margin-top: 20px;">
+            </div>
         </div>
     </div>
 
@@ -411,19 +451,44 @@
             constructor() {
                 this.searchInput = document.getElementById('searchInput');
                 this.searchBtn = document.getElementById('searchBtn');
+                this.graphBtn = document.getElementById('graphBtn');
+                this.repoSelectContainer = document.getElementById('repoSelectContainer');
+                this.repoSelect = document.getElementById('repoSelect');
                 this.resultsSection = document.getElementById('resultsSection');
                 this.resultsContainer = document.getElementById('resultsContainer');
+                this.graphContainer = document.getElementById('graphContainer');
+                this.resultsHeading = document.getElementById('resultsHeading');
                 this.resultsCount = document.getElementById('resultsCount');
                 this.modal = document.getElementById('explanationModal');
                 this.modalTitle = document.getElementById('modalTitle');
                 this.modalBody = document.getElementById('modalBody');
                 this.closeModal = document.getElementById('closeModal');
 
+                this.network = null; // Vis.js network instance
+
                 this.setupEventListeners();
+                this.loadRepositories();
+            }
+
+            async loadRepositories() {
+                try {
+                    const response = await fetch('/api/repositories');
+                    const repos = await response.json();
+
+                    if (repos.length > 0) {
+                        this.repoSelect.innerHTML = repos.map(repo =>
+                            `<option value="${repo.name}">${repo.name} (${repo.event_count} events)</option>`
+                        ).join('');
+                        this.repoSelectContainer.style.display = 'block';
+                    }
+                } catch (error) {
+                    console.error('Failed to load repositories', error);
+                }
             }
 
             setupEventListeners() {
                 this.searchBtn.addEventListener('click', () => this.performSearch());
+                this.graphBtn.addEventListener('click', () => this.loadGraph());
                 this.searchInput.addEventListener('keypress', (e) => {
                     if (e.key === 'Enter') this.performSearch();
                 });
@@ -435,14 +500,22 @@
 
             async performSearch() {
                 const query = this.searchInput.value.trim();
+                const repository = this.repoSelect.value;
                 if (!query) return;
 
-                this.showLoading();
-                
+                this.showLoading('Searching for components...');
+                this.graphContainer.style.display = 'none';
+                this.resultsContainer.style.display = 'block';
+                this.resultsHeading.textContent = 'Search Results';
+
                 try {
-                    const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
+                    let url = `/api/search?q=${encodeURIComponent(query)}`;
+                    if (repository) {
+                        url += `&repo=${encodeURIComponent(repository)}`;
+                    }
+                    const response = await fetch(url);
                     const results = await response.json();
-                    
+
                     this.displayResults(results, query);
                 } catch (error) {
                     console.error('Search failed:', error);
@@ -450,12 +523,107 @@
                 }
             }
 
-            showLoading() {
+            async loadGraph() {
+                const repository = this.repoSelect.value;
+                if (!repository) {
+                    alert('Please select a repository first');
+                    return;
+                }
+
+                this.showLoading('Loading graph data...');
+                this.resultsContainer.style.display = 'none';
+                this.graphContainer.style.display = 'block';
+                this.resultsHeading.textContent = `Dependency Graph for ${repository}`;
+                this.resultsCount.textContent = '';
+
+                try {
+                    const response = await fetch(`/api/graph/${encodeURIComponent(repository)}`);
+                    const graphData = await response.json();
+
+                    this.renderGraph(graphData);
+                } catch (error) {
+                    console.error('Graph load failed:', error);
+                    this.showError('Graph load failed. Please try again.');
+                }
+            }
+
+            renderGraph(data) {
+                this.resultsSection.style.display = 'block';
+
+                // Color and shape mapping for different node types
+                const nodes = new vis.DataSet(data.nodes.map(n => {
+                    let color, shape, size;
+
+                    switch (n.group) {
+                        case 'decision':
+                            color = '#10b981'; shape = 'diamond'; size = 25; break;
+                        case 'pull_request':
+                            color = '#3b82f6'; shape = 'box'; size = 20; break;
+                        case 'commit':
+                            color = '#f59e0b'; shape = 'dot'; size = 15; break;
+                        case 'issue':
+                            color = '#ef4444'; shape = 'box'; size = 20; break;
+                        case 'author':
+                            color = '#8b5cf6'; shape = 'ellipse'; size = 15; break;
+                        default:
+                            color = '#94a3b8'; shape = 'dot'; size = 15;
+                    }
+
+                    return {
+                        id: n.id,
+                        label: n.label,
+                        title: n.title, // Tooltip on hover
+                        color: { background: color, border: '#ffffff' },
+                        shape: shape,
+                        size: size,
+                        font: { color: n.group === 'pull_request' || n.group === 'issue' ? 'white' : 'black' }
+                    }
+                }));
+
+                const edges = new vis.DataSet(data.edges.map(e => ({
+                    from: e.from,
+                    to: e.to,
+                    label: e.label,
+                    font: { size: 10, align: 'middle' },
+                    arrows: 'to',
+                    color: { color: '#cbd5e1', highlight: '#3b82f6' }
+                })));
+
+                const container = document.getElementById('graphContainer');
+                const networkData = { nodes, edges };
+                const options = {
+                    physics: {
+                        stabilization: true,
+                        barnesHut: { gravitationalConstant: -2000, centralGravity: 0.3, springLength: 150 }
+                    },
+                    interaction: {
+                        hover: true,
+                        tooltipDelay: 200,
+                        navigationButtons: true,
+                        keyboard: true
+                    }
+                };
+
+                if (this.network) {
+                    this.network.destroy();
+                }
+                this.network = new vis.Network(container, networkData, options);
+
+                // Add click handler for nodes to potentially open why engine modal
+                this.network.on("selectNode", (params) => {
+                    const nodeId = params.nodes[0];
+                    if (nodeId.startsWith('pr-') || nodeId.startsWith('commit-')) {
+                        // Could trigger explanation here if desired
+                    }
+                });
+            }
+
+            showLoading(message = 'Searching for components...') {
                 this.resultsSection.style.display = 'block';
                 this.resultsContainer.innerHTML = `
                     <div class="loading">
                         <div class="spinner"></div>
-                        Searching for components...
+                        ${message}
                     </div>
                 `;
             }
@@ -473,7 +641,7 @@
                 }
 
                 this.resultsCount.textContent = `${results.length} components found`;
-                
+
                 this.resultsContainer.innerHTML = results.map(result => `
                     <div class="result-card ${result.type}" onclick="window.whyUI.explainComponent('${result.repository}', '${result.component}')">
                         <div class="result-header">
@@ -507,8 +675,15 @@
                 try {
                     const response = await fetch(`/api/why/${encodeURIComponent(repository)}/${encodeURIComponent(component)}`);
                     const explanation = await response.json();
-                    
+
                     this.displayExplanation(explanation);
+
+                    if (explanation.graph && explanation.graph.nodes.length > 0) {
+                        // Short delay to allow DOM to render modal content first
+                        setTimeout(() => {
+                            this.renderModalGraph(explanation.graph);
+                        }, 100);
+                    }
                 } catch (error) {
                     console.error('Explanation failed:', error);
                     this.modalBody.innerHTML = `
@@ -522,7 +697,7 @@
 
             displayExplanation(explanation) {
                 const confidenceClass = `confidence-${explanation.summary.confidence}`;
-                
+
                 this.modalBody.innerHTML = `
                     <div class="explanation-summary">
                         <h3>Summary
@@ -531,8 +706,8 @@
                             </span>
                         </h3>
                         <p>${explanation.summary.text}</p>
-                        ${explanation.summary.primary_decision_maker ? 
-                            `<p><strong>Primary decision maker:</strong> ${explanation.summary.primary_decision_maker}</p>` : ''}
+                        ${explanation.summary.primary_decision_maker ?
+                        `<p><strong>Primary decision maker:</strong> ${explanation.summary.primary_decision_maker}</p>` : ''}
                     </div>
 
                     ${explanation.decisions.length > 0 ? `
@@ -573,6 +748,13 @@
                         </div>
                     ` : ''}
 
+                    ${explanation.graph && explanation.graph.nodes.length > 0 ? `
+                        <div class="graph-section" style="margin-top: 24px;">
+                            <h3>Component Knowledge Graph</h3>
+                            <div id="modalGraphContainer" style="width: 100%; height: 350px; border: 1px solid #e2e8f0; border-radius: 8px; background: white; margin-top: 12px; margin-bottom: 24px;"></div>
+                        </div>
+                    ` : ''}
+
                     <div style="margin-top: 24px; font-size: 0.9rem; color: #64748b;">
                         <strong>Evidence:</strong> 
                         ${explanation.evidence.total_events} events analyzed • 
@@ -595,6 +777,57 @@
             showModal() {
                 this.modal.style.display = 'block';
                 document.body.style.overflow = 'hidden';
+            }
+
+            renderModalGraph(data) {
+                const container = document.getElementById('modalGraphContainer');
+                if (!container) return;
+
+                const nodes = new vis.DataSet(data.nodes.map(n => {
+                    let color, shape, size;
+                    switch (n.group) {
+                        case 'component': color = '#f43f5e'; shape = 'star'; size = 30; break;
+                        case 'decision': color = '#10b981'; shape = 'diamond'; size = 25; break;
+                        case 'pull_request': color = '#3b82f6'; shape = 'box'; size = 20; break;
+                        case 'commit': color = '#f59e0b'; shape = 'dot'; size = 15; break;
+                        case 'issue': color = '#ef4444'; shape = 'box'; size = 20; break;
+                        case 'author': color = '#8b5cf6'; shape = 'ellipse'; size = 15; break;
+                        default: color = '#94a3b8'; shape = 'dot'; size = 15;
+                    }
+
+                    return {
+                        id: n.id,
+                        label: n.label,
+                        title: n.title,
+                        color: { background: color, border: '#ffffff' },
+                        shape: shape,
+                        size: size,
+                        font: { color: n.group === 'pull_request' || n.group === 'issue' || n.group === 'author' ? 'white' : 'black' }
+                    }
+                }));
+
+                const edges = new vis.DataSet(data.edges.map(e => ({
+                    from: e.from,
+                    to: e.to,
+                    label: e.label,
+                    font: { size: 10, align: 'middle' },
+                    arrows: 'to',
+                    color: { color: '#cbd5e1', highlight: '#3b82f6' }
+                })));
+
+                const networkData = { nodes, edges };
+                const options = {
+                    physics: {
+                        stabilization: true,
+                        barnesHut: { centralGravity: 0.3, springLength: 100 }
+                    },
+                    interaction: {
+                        navigationButtons: true,
+                        keyboard: true
+                    }
+                };
+
+                new vis.Network(container, networkData, options);
             }
 
             hideModal() {
@@ -629,4 +862,5 @@
         window.whyUI = new WhyEngineUI();
     </script>
 </body>
+
 </html>

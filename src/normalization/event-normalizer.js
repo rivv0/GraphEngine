@@ -22,21 +22,21 @@ export class EventNormalizer {
    */
   async normalizeRepository(repository) {
     console.log(`🔄 Phase 2: Normalizing events for ${repository}`);
-    
+
     await this.createNormalizedTable();
-    
+
     // Get all raw events for this repository
     const rawEvents = await this.eventStore.getEvents({ repository });
-    
+
     console.log(`Processing ${rawEvents.length} raw events...`);
-    
+
     for (const rawEvent of rawEvents) {
       const normalized = await this.normalizeEvent(rawEvent);
       if (normalized) {
         await this.storeNormalizedEvent(normalized);
       }
     }
-    
+
     console.log(`✅ Normalized ${rawEvents.length} events`);
   }
 
@@ -123,7 +123,7 @@ export class EventNormalizer {
    */
   extractAuthor(rawEvent) {
     const data = rawEvent.data;
-    
+
     switch (rawEvent.type) {
       case 'pull_request':
       case 'issue':
@@ -132,7 +132,7 @@ export class EventNormalizer {
           author_name: data.author, // GitHub API doesn't always provide full name
           author_email: null
         };
-      
+
       case 'pr_comment':
       case 'pr_review':
         return {
@@ -140,14 +140,14 @@ export class EventNormalizer {
           author_name: data.author,
           author_email: null
         };
-      
+
       case 'commit':
         return {
           author_login: data.author,
           author_name: data.author,
           author_email: data.author_email
         };
-      
+
       default:
         return {
           author_login: null,
@@ -162,7 +162,7 @@ export class EventNormalizer {
    */
   extractContent(rawEvent) {
     const data = rawEvent.data;
-    
+
     switch (rawEvent.type) {
       case 'pull_request':
         return {
@@ -170,35 +170,35 @@ export class EventNormalizer {
           content: data.body || '',
           content_type: 'pr_description'
         };
-      
+
       case 'issue':
         return {
           title: data.title,
           content: data.body || '',
           content_type: 'issue_description'
         };
-      
+
       case 'pr_comment':
         return {
           title: null,
           content: data.body || '',
           content_type: 'comment'
         };
-      
+
       case 'pr_review':
         return {
           title: null,
           content: data.body || '',
           content_type: 'review'
         };
-      
+
       case 'commit':
         return {
           title: data.message.split('\n')[0], // First line as title
           content: data.message,
           content_type: 'commit_message'
         };
-      
+
       default:
         return {
           title: null,
@@ -224,16 +224,16 @@ export class EventNormalizer {
       case 'pull_request':
         entities.pull_request_number = data.number;
         break;
-      
+
       case 'issue':
         entities.issue_number = data.number;
         break;
-      
+
       case 'pr_comment':
       case 'pr_review':
         entities.pull_request_number = data.pr_number;
         break;
-      
+
       case 'commit':
         entities.commit_sha = data.sha;
         break;
@@ -261,16 +261,16 @@ export class EventNormalizer {
       { pattern: /\b(decided?|decision|choose|chose|selected?)\b/g, weight: 0.8, type: 'explicit_decision' },
       { pattern: /\b(approved?|rejected?|accepted?)\b/g, weight: 0.7, type: 'approval_decision' },
       { pattern: /\b(let's (go with|use|implement))\b/g, weight: 0.6, type: 'implementation_decision' },
-      
+
       // Tradeoff discussions
       { pattern: /\b(tradeoff|trade-off|pros? and cons?)\b/g, weight: 0.5, type: 'tradeoff_analysis' },
       { pattern: /\b(because|since|due to|reason)\b/g, weight: 0.3, type: 'rationale' },
       { pattern: /\b(however|but|although|instead)\b/g, weight: 0.2, type: 'alternative_consideration' },
-      
+
       // Technical decisions
       { pattern: /\b(architecture|design|approach|strategy)\b/g, weight: 0.4, type: 'technical_decision' },
       { pattern: /\b(performance|scalability|maintainability)\b/g, weight: 0.3, type: 'quality_attribute' },
-      
+
       // Implementation signals
       { pattern: /\b(implement|refactor|migrate|upgrade)\b/g, weight: 0.3, type: 'implementation_signal' },
       { pattern: /\b(fix|bug|issue|problem)\b/g, weight: 0.2, type: 'problem_solving' }
@@ -342,7 +342,7 @@ export class EventNormalizer {
     `);
 
     const rows = stmt.all(repository, minConfidence);
-    
+
     return rows.map(row => ({
       ...row,
       decision_indicators: JSON.parse(row.decision_indicators || '[]')

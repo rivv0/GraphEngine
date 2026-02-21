@@ -16,7 +16,7 @@ export class WhyServer {
     this.eventStore = new EventStore(config.dbPath || './storage/events.db');
     this.whyEngine = new WhyEngine(this.eventStore);
     this.codeTracer = new CodeTracer(this.eventStore);
-    
+
     this.setupMiddleware();
     this.setupRoutes();
   }
@@ -24,10 +24,10 @@ export class WhyServer {
   setupMiddleware() {
     // Parse JSON bodies
     this.app.use(express.json());
-    
+
     // Serve static files
     this.app.use(express.static(join(__dirname, 'public')));
-    
+
     // CORS for development
     this.app.use((req, res, next) => {
       res.header('Access-Control-Allow-Origin', '*');
@@ -48,12 +48,12 @@ export class WhyServer {
     });
 
     // API Routes
-    
+
     // Search for code/components
     this.app.get('/api/search', async (req, res) => {
       try {
         const { q: query, repo } = req.query;
-        
+
         if (!query) {
           return res.status(400).json({ error: 'Query parameter required' });
         }
@@ -72,7 +72,7 @@ export class WhyServer {
         const { repository, component } = req.params;
         const decodedRepo = decodeURIComponent(repository);
         const decodedComponent = decodeURIComponent(component);
-        
+
         const explanation = await this.whyEngine.explainComponent(decodedRepo, decodedComponent);
         res.json(explanation);
       } catch (error) {
@@ -87,7 +87,7 @@ export class WhyServer {
         const { repository, component } = req.params;
         const decodedRepo = decodeURIComponent(repository);
         const decodedComponent = decodeURIComponent(component);
-        
+
         const timeline = await this.whyEngine.getDecisionTimeline(decodedRepo, decodedComponent);
         res.json(timeline);
       } catch (error) {
@@ -119,6 +119,20 @@ export class WhyServer {
       }
     });
 
+    // Get graph nodes and edges for visualizing relationships
+    this.app.get('/api/graph/:repository', async (req, res) => {
+      try {
+        const { repository } = req.params;
+        const decodedRepo = decodeURIComponent(repository);
+
+        const graphData = await this.whyEngine.getGraphData(decodedRepo);
+        res.json(graphData);
+      } catch (error) {
+        console.error('Graph data error:', error);
+        res.status(500).json({ error: 'Failed to get graph data' });
+      }
+    });
+
     // Health check
     this.app.get('/api/health', (req, res) => {
       res.json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -127,7 +141,7 @@ export class WhyServer {
 
   async start() {
     await this.eventStore.initialize();
-    
+
     this.app.listen(this.port, () => {
       console.log(`🌐 Why Engine running at http://localhost:${this.port}`);
       console.log(`📊 Database: ${this.eventStore.dbPath}`);
