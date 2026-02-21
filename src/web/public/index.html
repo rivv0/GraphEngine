@@ -706,10 +706,34 @@
                             <span class="confidence-badge ${confidenceClass}">
                                 ${explanation.summary.confidence} confidence
                             </span>
+                            ${explanation.summary.generated_by === 'llm' ?
+                        `<span style="background:#ede9fe;color:#6d28d9;font-size:0.75rem;padding:3px 10px;border-radius:12px;margin-left:8px;font-weight:500;">✦ AI-powered</span>` : ''}
                         </h3>
-                        <p>${explanation.summary.text}</p>
+                        <p style="margin-top:10px;">${explanation.summary.text}</p>
                         ${explanation.summary.primary_decision_maker ?
-                        `<p><strong>Primary decision maker:</strong> ${explanation.summary.primary_decision_maker}</p>` : ''}
+                        `<p style="margin-top:8px;"><strong>Primary decision maker:</strong> ${explanation.summary.primary_decision_maker}</p>` : ''}
+
+                        ${explanation.summary.key_decisions && explanation.summary.key_decisions.length > 0 ? `
+                            <div style="margin-top:16px;">
+                                <strong style="font-size:0.9rem;color:#1e293b;">Key Decisions</strong>
+                                <ul style="margin-top:8px;padding-left:20px;display:flex;flex-direction:column;gap:6px;">
+                                    ${explanation.summary.key_decisions.map(d =>
+                            `<li style="color:#334155;font-size:0.9rem;">${d}</li>`
+                        ).join('')}
+                                </ul>
+                            </div>
+                        ` : ''}
+
+                        ${explanation.summary.open_questions && explanation.summary.open_questions.length > 0 ? `
+                            <div style="margin-top:14px;background:#fef9c3;border-radius:6px;padding:12px 16px;">
+                                <strong style="font-size:0.85rem;color:#854d0e;">❓ Open Questions</strong>
+                                <ul style="margin-top:6px;padding-left:18px;display:flex;flex-direction:column;gap:4px;">
+                                    ${explanation.summary.open_questions.map(q =>
+                            `<li style="color:#78350f;font-size:0.85rem;">${q}</li>`
+                        ).join('')}
+                                </ul>
+                            </div>
+                        ` : ''}
                     </div>
 
                     ${explanation.decisions.length > 0 ? `
