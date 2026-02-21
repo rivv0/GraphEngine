@@ -1,9 +1,19 @@
-
+import { getLLMProvider } from '../intelligence/llm-provider.js';
+import {
+  DECISION_SYSTEM_PROMPT,
+  buildDecisionExtractionPrompt
+} from '../intelligence/decision-prompt.js';
 
 export class DecisionExtractor {
-  constructor(eventStore, llmProvider = null) {
+  constructor(eventStore) {
     this.eventStore = eventStore;
-    this.llmProvider = llmProvider; // Will be OpenAI, Anthropic, or local model
+    // Lazy — see getter below. Do NOT init here; dotenv may not be loaded yet.
+  }
+
+  /** Lazy accessor — singleton created on first use, after dotenv.config(). */
+  get llm() {
+    if (!this._llm) this._llm = getLLMProvider();
+    return this._llm;
   }
 
   /**
@@ -11,16 +21,20 @@ export class DecisionExtractor {
    */
   async extractDecisions(repository, minConfidence = 0.4) {
     console.log(`🤖 Phase 3: Extracting decisions for ${repository}`);
-    
+    if (this.llm.isAvailable) {
+      console.log(`   Mode: LLM-powered (${this.llm.provider} / ${this.llm.model})`);
+    } else {
+      console.log(`   Mode: Rule-based fallback`);
+    }
+
     await this.createDecisionsTable();
-    
-    // Get normalized events that likely contain decisions
+
     const candidates = await this.getCandidateEvents(repository, minConfidence);
     console.log(`Processing ${candidates.length} decision candidates...`);
-    
+
     let extracted = 0;
     let skipped = 0;
-    
+
     for (const candidate of candidates) {
       try {
         const decision = await this.extractDecisionFromEvent(candidate);
@@ -35,7 +49,7 @@ export class DecisionExtractor {
         skipped++;
       }
     }
-    
+
     console.log(`✅ Extracted ${extracted} decisions, skipped ${skipped}`);
     return { extracted, skipped };
   }
@@ -106,7 +120,7 @@ export class DecisionExtractor {
     `);
 
     const rows = stmt.all(repository, minConfidence);
-    
+
     return rows.map(row => ({
       ...row,
       decision_indicators: JSON.parse(row.decision_indicators || '[]')
@@ -114,40 +128,81 @@ export class DecisionExtractor {
   }
 
   /**
-   * Extract structured decision from a single event
-   * This is where the LLM magic happens
+   * Route to LLM or rule-based extraction
    */
   async extractDecisionFromEvent(event) {
-    // For now, implement a rule-based approach
-    // In production, this would call OpenAI/Anthropic/local LLM
-    
-    if (!this.llmProvider) {
+    if (this.llm.isAvailable) {
+      return this.extractDecisionWithLLM(event);
+    }
+    return this.extractDecisionRuleBased(event);
+  }
+
+  /**
+   * LLM-based decision extraction — the primary path.
+   */
+  async extractDecisionWithLLM(event) {
+    const userPrompt = buildDecisionExtractionPrompt(event);
+
+    let parsed;
+    try {
+      parsed = await this.llm.completeJSON(DECISION_SYSTEM_PROMPT, userPrompt, {
+        maxTokens: 512,
+        temperature: 0.1
+      });
+    } catch (err) {
+      console.warn(`⚠️  LLM parse failed for event ${event.id}, falling back to rule-based. Error: ${err.message}`);
       return this.extractDecisionRuleBased(event);
     }
-    
-    // LLM-based extraction (placeholder for now)
-    return this.extractDecisionWithLLM(event);
+
+    if (!parsed || !parsed.is_decision) {
+      return null;
+    }
+
+    return {
+      id: `decision_llm_${event.id}`,
+      source_event_id: event.id,
+      repository: event.repository,
+      timestamp: event.timestamp,
+      primary_decision_maker: event.author_login,
+      related_pr_number: event.pull_request_number,
+      related_issue_number: event.issue_number,
+      related_commit_sha: event.commit_sha,
+
+      decision_statement: parsed.decision_statement || '(no statement)',
+      rationale: parsed.rationale || null,
+      alternatives_considered: parsed.alternatives_considered || null,
+      tradeoffs: parsed.tradeoffs || null,
+      problem_statement: parsed.problem_statement || null,
+      success_criteria: parsed.success_criteria || null,
+      implementation_notes: parsed.implementation_notes || null,
+
+      decision_type: parsed.decision_type || 'technical',
+      scope: parsed.scope || 'component',
+      reversibility: parsed.reversibility || 'reversible',
+      decision_confidence: parsed.decision_confidence || 'medium',
+      extraction_confidence: Math.min(
+        Math.max(parsed.extraction_confidence ?? event.confidence_score, 0),
+        1.0
+      )
+    };
   }
 
   /**
    * Rule-based decision extraction (fallback when no LLM available)
-   * This demonstrates the structure we want LLMs to produce
    */
   extractDecisionRuleBased(event) {
     const content = event.content || '';
     const title = event.title || '';
     const fullText = `${title} ${content}`.toLowerCase();
-    
-    // Skip if no strong decision indicators
-    const strongIndicators = event.decision_indicators.filter(i => 
+
+    const strongIndicators = event.decision_indicators.filter(i =>
       ['explicit_decision', 'approval_decision', 'implementation_decision'].includes(i.type)
     );
-    
+
     if (strongIndicators.length === 0 && event.confidence_score < 0.6) {
       return null;
     }
 
-    // Extract decision based on event type and content patterns
     let decision = {
       id: `decision_${event.id}`,
       source_event_id: event.id,
@@ -160,14 +215,13 @@ export class DecisionExtractor {
       extraction_confidence: Math.min(event.confidence_score + 0.1, 1.0)
     };
 
-    // Extract decision based on event type
     if (event.event_type === 'pr_review' && content.includes('approved')) {
       decision.decision_statement = `Approved implementation approach in PR #${event.pull_request_number}`;
       decision.decision_type = 'approval';
       decision.scope = 'component';
       decision.reversibility = 'reversible';
       decision.rationale = this.extractRationale(content);
-      
+
     } else if (event.event_type === 'pull_request') {
       decision.decision_statement = `Implement: ${title}`;
       decision.decision_type = 'technical';
@@ -175,9 +229,8 @@ export class DecisionExtractor {
       decision.reversibility = this.inferReversibility(content);
       decision.problem_statement = this.extractProblemStatement(content);
       decision.rationale = this.extractRationale(content);
-      
+
     } else if (event.event_type === 'pr_comment') {
-      // Look for decision-making language in comments
       if (this.containsDecisionLanguage(content)) {
         decision.decision_statement = this.extractDecisionStatement(content);
         decision.decision_type = 'technical';
@@ -185,139 +238,97 @@ export class DecisionExtractor {
         decision.reversibility = 'reversible';
         decision.rationale = this.extractRationale(content);
       } else {
-        return null; // Not a decision-making comment
+        return null;
       }
-      
+
     } else if (event.event_type === 'commit') {
       decision.decision_statement = `Implement: ${title}`;
       decision.decision_type = 'implementation';
       decision.scope = 'local';
       decision.reversibility = 'reversible';
       decision.implementation_notes = content;
-      
+
     } else {
-      return null; // Event type not suitable for decision extraction
+      return null;
     }
 
-    // Set decision confidence based on language patterns
     decision.decision_confidence = this.inferDecisionConfidence(content);
-    
     return decision;
   }
 
-  /**
-   * Helper methods for rule-based extraction
-   */
+  // ── Rule-based helpers ─────────────────────────────────────────────
+
   containsDecisionLanguage(content) {
     const decisionPhrases = [
       'let\'s go with', 'i think we should', 'we should use',
       'i prefer', 'better approach', 'i suggest',
       'let\'s implement', 'we need to', 'i recommend'
     ];
-    
     const lowerContent = content.toLowerCase();
     return decisionPhrases.some(phrase => lowerContent.includes(phrase));
   }
 
   extractDecisionStatement(content) {
-    // Simple extraction - in production, LLM would do this better
     const sentences = content.split(/[.!?]+/);
-    
     for (const sentence of sentences) {
       const lower = sentence.toLowerCase().trim();
       if (this.containsDecisionLanguage(lower)) {
         return sentence.trim();
       }
     }
-    
     return content.substring(0, 100) + '...';
   }
 
   extractRationale(content) {
-    // Look for "because", "since", "due to" patterns
     const rationalePatterns = [
       /because ([^.!?]+)/i,
       /since ([^.!?]+)/i,
       /due to ([^.!?]+)/i,
       /this (?:will|should) ([^.!?]+)/i
     ];
-    
     for (const pattern of rationalePatterns) {
       const match = content.match(pattern);
-      if (match) {
-        return match[1].trim();
-      }
+      if (match) return match[1].trim();
     }
-    
     return null;
   }
 
   extractProblemStatement(content) {
-    // Look for problem descriptions
     const problemPatterns = [
       /(?:issue|problem|challenge) (?:is|was) ([^.!?]+)/i,
       /we (?:need|want) to ([^.!?]+)/i,
       /(?:currently|right now) ([^.!?]+)/i
     ];
-    
     for (const pattern of problemPatterns) {
       const match = content.match(pattern);
-      if (match) {
-        return match[1].trim();
-      }
+      if (match) return match[1].trim();
     }
-    
     return null;
   }
 
   inferScope(content) {
     const lowerContent = content.toLowerCase();
-    
-    if (lowerContent.includes('architecture') || lowerContent.includes('system')) {
-      return 'system';
-    } else if (lowerContent.includes('component') || lowerContent.includes('module')) {
-      return 'component';
-    } else {
-      return 'local';
-    }
+    if (lowerContent.includes('architecture') || lowerContent.includes('system')) return 'system';
+    if (lowerContent.includes('component') || lowerContent.includes('module')) return 'component';
+    return 'local';
   }
 
   inferReversibility(content) {
     const lowerContent = content.toLowerCase();
-    
-    if (lowerContent.includes('migration') || lowerContent.includes('breaking')) {
-      return 'costly';
-    } else if (lowerContent.includes('database') || lowerContent.includes('schema')) {
-      return 'irreversible';
-    } else {
-      return 'reversible';
-    }
+    if (lowerContent.includes('migration') || lowerContent.includes('breaking')) return 'costly';
+    if (lowerContent.includes('database') || lowerContent.includes('schema')) return 'irreversible';
+    return 'reversible';
   }
 
   inferDecisionConfidence(content) {
     const lowerContent = content.toLowerCase();
-    
-    if (lowerContent.includes('definitely') || lowerContent.includes('certain')) {
-      return 'high';
-    } else if (lowerContent.includes('probably') || lowerContent.includes('likely')) {
-      return 'medium';
-    } else {
-      return 'low';
-    }
+    if (lowerContent.includes('definitely') || lowerContent.includes('certain')) return 'high';
+    if (lowerContent.includes('probably') || lowerContent.includes('likely')) return 'medium';
+    return 'low';
   }
 
-  /**
-   * LLM-based extraction (placeholder for future implementation)
-   */
-  async extractDecisionWithLLM(event) {
-    // This would call OpenAI/Anthropic with a structured prompt
-    // For now, fall back to rule-based approach
-    return this.extractDecisionRuleBased(event);
-  }
+  // ── Storage & queries ──────────────────────────────────────────────
 
-  /**
-   * Store extracted decision
-   */
   async storeDecision(decision) {
     const stmt = this.eventStore.db.prepare(`
       INSERT OR REPLACE INTO decisions (
@@ -358,9 +369,6 @@ export class DecisionExtractor {
     );
   }
 
-  /**
-   * Get extracted decisions
-   */
   async getDecisions(repository, filters = {}) {
     let query = 'SELECT * FROM decisions WHERE repository = ?';
     const params = [repository];
@@ -369,12 +377,10 @@ export class DecisionExtractor {
       query += ' AND decision_type = ?';
       params.push(filters.decision_type);
     }
-
     if (filters.min_confidence) {
       query += ' AND extraction_confidence >= ?';
       params.push(filters.min_confidence);
     }
-
     if (filters.after) {
       query += ' AND timestamp > ?';
       params.push(filters.after);
@@ -396,9 +402,6 @@ export class DecisionExtractor {
     }));
   }
 
-  /**
-   * Get extraction statistics
-   */
   async getExtractionStats(repository) {
     const totalDecisions = this.eventStore.db.prepare(`
       SELECT COUNT(*) as count FROM decisions WHERE repository = ?

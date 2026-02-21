@@ -1,9 +1,21 @@
 /**
  * Why Engine - Core logic for answering "Why does this exist?"
  */
+import { getLLMProvider } from '../intelligence/llm-provider.js';
+import { WHY_SYSTEM_PROMPT, buildWhySummaryPrompt } from '../intelligence/decision-prompt.js';
+
 export class WhyEngine {
   constructor(eventStore) {
     this.eventStore = eventStore;
+    // NOTE: do NOT call getLLMProvider() here — ES module imports are hoisted
+    // above dotenv.config(), so env vars aren't set yet at construction time.
+    // The lazy getter below ensures we read the env only when first needed.
+  }
+
+  /** Lazy accessor — singleton is created on first *use*, after dotenv is loaded. */
+  get llm() {
+    if (!this._llm) this._llm = getLLMProvider();
+    return this._llm;
   }
 
   async explainComponent(repository, componentName) {
@@ -11,11 +23,12 @@ export class WhyEngine {
 
     const relatedEvents = await this.findRelatedEvents(repository, componentName);
     const decisions = await this.findRelatedDecisions(repository, componentName);
+    const summary = await this.generateSummary(componentName, decisions, relatedEvents);
 
     return {
       component: componentName,
       repository: repository,
-      summary: this.generateSummary(decisions, relatedEvents),
+      summary,
       decisions: decisions.map(d => this.formatDecision(d)),
       timeline: await this.buildTimeline(relatedEvents, decisions),
       graph: this.buildComponentGraph(componentName, relatedEvents, decisions),
@@ -94,34 +107,59 @@ export class WhyEngine {
     return Math.min(score, 1.0);
   }
 
-  generateSummary(decisions, events) {
+  /**
+   * Generate a natural-language summary via LLM when available, or fall back
+   * to a brief template-based summary.
+   */
+  async generateSummary(componentName, decisions, events) {
+    // --- LLM path ---
+    if (this.llm.isAvailable && (decisions.length > 0 || events.length > 0)) {
+      try {
+        const userPrompt = buildWhySummaryPrompt(componentName, decisions, events);
+        const parsed = await this.llm.completeJSON(WHY_SYSTEM_PROMPT, userPrompt, {
+          maxTokens: 512,
+          temperature: 0.3
+        });
+        return {
+          text: parsed.summary || '(no summary)',
+          key_decisions: parsed.key_decisions || [],
+          open_questions: parsed.open_questions || [],
+          confidence: this.mapConfidenceLevel(this.calculateConfidence(decisions, events)),
+          generated_by: 'llm'
+        };
+      } catch (err) {
+        console.warn('⚠️  LLM summary failed, using fallback:', err.message);
+      }
+    }
+
+    // --- Fallback: template-based ---
     if (decisions.length === 0 && events.length === 0) {
       return {
-        text: "No recorded decisions or discussions found for this component.",
-        confidence: "none",
-        gaps: ["No decision history available"]
+        text: 'No recorded decisions or discussions found for this component.',
+        confidence: 'none',
+        gaps: ['No decision history available'],
+        generated_by: 'fallback'
       };
     }
 
     if (decisions.length === 0) {
       return {
         text: `Found ${events.length} related discussions but no structured decisions recorded.`,
-        confidence: "low",
-        gaps: ["Decision extraction not completed"]
+        confidence: 'low',
+        gaps: ['Decision extraction not completed'],
+        generated_by: 'fallback'
       };
     }
 
     const primaryDecision = decisions[0];
-    let summary = primaryDecision.decision_statement;
-
-    if (primaryDecision.rationale) {
-      summary += ` Rationale: ${primaryDecision.rationale}`;
-    }
+    let text = primaryDecision.decision_statement;
+    if (primaryDecision.rationale) text += ` Rationale: ${primaryDecision.rationale}`;
 
     return {
-      text: summary,
+      text,
       confidence: this.mapConfidenceLevel(primaryDecision.extraction_confidence),
-      primary_decision_maker: primaryDecision.primary_decision_maker
+      primary_decision_maker: primaryDecision.primary_decision_maker,
+      generated_by: 'fallback'
     };
   }
 

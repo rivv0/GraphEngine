@@ -9,6 +9,7 @@ import { GitHubIngester } from './ingestion/github-ingester.js';
 import { EventStore } from './storage/event-store.js';
 import { EventNormalizer } from './normalization/event-normalizer.js';
 import { DecisionExtractor } from './extraction/decision-extractor.js';
+import { getLLMProvider } from './intelligence/llm-provider.js';
 import config from '../config/default.js';
 
 /**
@@ -27,15 +28,18 @@ class DecisionMemorySystem {
 
   async initialize() {
     console.log('🚀 Initializing Engineering Decision Memory System');
-    
+
     // Validate configuration
     if (!process.env.GITHUB_TOKEN) {
       throw new Error('GITHUB_TOKEN environment variable is required');
     }
 
+    // Initialize LLM provider (logs which AI provider was selected)
+    getLLMProvider();
+
     // Initialize storage
     await this.eventStore.initialize();
-    
+
     console.log('✅ System initialized successfully');
   }
 
@@ -43,9 +47,9 @@ class DecisionMemorySystem {
     console.log(`\n📊 Phase 1: OPTIMIZED Data Ingestion`);
     console.log(`Target: ${owner}/${repo}`);
     console.log(`Strategy: Fast capture with smart limits.`);
-    
+
     const startTime = Date.now();
-    
+
     // Default optimized options
     const defaultOptions = {
       maxPRs: 100,        // Recent PRs only
@@ -54,15 +58,15 @@ class DecisionMemorySystem {
       skipComments: false, // Include comments for decisions
       batchSize: 50       // Batch database writes
     };
-    
+
     const options = { ...defaultOptions, ...customOptions };
-    
+
     console.log(`📊 Limits: ${options.maxPRs} PRs, ${options.maxCommits} commits, ${options.maxIssues} issues`);
     if (options.skipComments) console.log(`⚡ Skipping comments for faster ingestion.`);
-    
+
     await this.githubIngester.ingestRepository(owner, repo, options);
     const duration = ((Date.now() - startTime) / 1000).toFixed(1);
-    
+
     // Show ingestion statistics
     const stats = await this.eventStore.getStats();
     console.log(`\n📈 Ingestion Complete in ${duration}s:`);
@@ -78,20 +82,20 @@ class DecisionMemorySystem {
     console.log(`\n🔄 Phase 2: Event Normalization`);
     console.log(`Target: ${repository}`);
     console.log(`Strategy: Unified format + decision signal detection`);
-    
+
     await this.eventNormalizer.normalizeRepository(repository);
-    
+
     // Show normalization statistics
     const stats = await this.eventNormalizer.getNormalizationStats(repository);
     console.log(`\n📊 Normalization Complete:`);
     console.log(`- Total normalized: ${stats.total}`);
     console.log(`- By confidence:`, stats.byConfidence);
     console.log(`- By event type:`, stats.byEventType);
-    
+
     // Show decision candidates
     const candidates = await this.eventNormalizer.getDecisionCandidates(repository, 0.4);
     console.log(`\n🎯 Decision Candidates (confidence >= 0.4): ${candidates.length}`);
-    
+
     candidates.slice(0, 5).forEach(candidate => {
       console.log(`\n[${candidate.confidence_score.toFixed(2)}] ${candidate.event_type} by ${candidate.author_login}`);
       console.log(`  ${candidate.title || candidate.content.substring(0, 80)}...`);
@@ -106,10 +110,10 @@ class DecisionMemorySystem {
     const repository = `${owner}/${repo}`;
     console.log(`\n🤖 Phase 3: Decision Extraction`);
     console.log(`Target: ${repository}`);
-    console.log(`Strategy: Rule-based extraction → structured decisions`);
-    
+    console.log(`Strategy: LLM-powered extraction → structured decisions`);
+
     const result = await this.decisionExtractor.extractDecisions(repository, 0.4);
-    
+
     // Show extraction statistics
     const stats = await this.decisionExtractor.getExtractionStats(repository);
     console.log(`\n📊 Extraction Complete:`);
@@ -117,11 +121,11 @@ class DecisionMemorySystem {
     console.log(`- By type:`, stats.byType);
     console.log(`- By confidence:`, stats.byConfidence);
     console.log(`- Average confidence: ${stats.avgConfidence.toFixed(2)}`);
-    
+
     // Show sample decisions
     const decisions = await this.decisionExtractor.getDecisions(repository, { limit: 5 });
     console.log(`\n🎯 Sample Decisions:`);
-    
+
     decisions.forEach(decision => {
       console.log(`\n[${decision.extraction_confidence.toFixed(2)}] ${decision.decision_type} by ${decision.primary_decision_maker}`);
       console.log(`  Statement: ${decision.decision_statement}`);
@@ -137,14 +141,14 @@ class DecisionMemorySystem {
 
   async showStatus() {
     const stats = await this.eventStore.getStats();
-    
+
     console.log('\n📊 System Status:');
     console.log(`Total events stored: ${stats.total}`);
     console.log('\nEvents by type:');
     stats.byType.forEach(({ type, count }) => {
       console.log(`  ${type}: ${count}`);
     });
-    
+
     console.log('\nEvents by repository:');
     stats.byRepository.forEach(({ repository, count }) => {
       console.log(`  ${repository}: ${count}`);
@@ -156,7 +160,7 @@ class DecisionMemorySystem {
    */
   async searchEvents(searchTerm, filters = {}) {
     console.log(`\n🔍 Searching for: "${searchTerm}"`);
-    
+
     const events = await this.eventStore.searchEvents(searchTerm, {
       limit: 10,
       ...filters
@@ -166,7 +170,7 @@ class DecisionMemorySystem {
     events.forEach(event => {
       console.log(`\n[${event.timestamp}] ${event.type}/${event.action}`);
       console.log(`Repository: ${event.repository}`);
-      
+
       // Show relevant data based on event type
       if (event.type === 'pull_request') {
         console.log(`PR #${event.data.number}: ${event.data.title}`);
@@ -193,10 +197,10 @@ class DecisionMemorySystem {
  */
 async function main() {
   const system = new DecisionMemorySystem();
-  
+
   try {
     await system.initialize();
-    
+
     const args = process.argv.slice(2);
     const command = args[0];
 
@@ -231,7 +235,7 @@ async function main() {
         console.log('🚀 Using FAST ingestion mode');
         const fastOptions = {
           maxPRs: 50,
-          maxCommits: 100, 
+          maxCommits: 100,
           maxIssues: 25,
           skipComments: true, // Skip comments for speed
           batchSize: 100
