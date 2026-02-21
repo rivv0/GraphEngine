@@ -363,14 +363,23 @@ export class WhyEngine {
   }
 
   async getGraphData(repository) {
-    console.log(`🌐 Generating graph data for: ${repository}`);
+    console.log(`🌐 Generating graph data for: ${repository || 'all repositories'}`);
 
-    // Fetch all events and decisions for this repository
-    const events = await this.eventStore.getEvents({ repository, limit: 1000 });
-    const decisions = this.eventStore.db.prepare(`
+    // Fetch all events and decisions (filtered if a repository is provided)
+    const eventParams = repository ? { repository, limit: 1000 } : { limit: 1000 };
+    const events = await this.eventStore.getEvents(eventParams);
+
+    let decisions = [];
+    if (repository) {
+      decisions = this.eventStore.db.prepare(`
         SELECT * FROM decisions 
         WHERE repository = ?
       `).all(repository) || [];
+    } else {
+      decisions = this.eventStore.db.prepare(`
+        SELECT * FROM decisions 
+      `).all() || [];
+    }
 
     const nodes = [];
     const edges = [];
@@ -392,29 +401,33 @@ export class WhyEngine {
       }
     };
 
+    // Helper wrapper to include repo context in IDs
+    const safeRepoName = (repo) => repo.replace(/[^a-zA-Z0-9-]/g, '_');
+
     // 1. First Pass: Create all event nodes
     for (const event of events) {
+      const repoPrefix = safeRepoName(event.repository);
       switch (event.type) {
         case 'pull_request':
           addNode(
-            `pr-${event.data.number}`,
-            `PR #${event.data.number}`,
+            `${repoPrefix}-pr-${event.data.number}`,
+            `[${event.repository}] PR #${event.data.number}`,
             'pull_request',
             event.data.title
           );
           break;
         case 'commit':
           addNode(
-            `commit-${event.data.sha.substring(0, 7)}`,
-            event.data.message.split('\\n')[0],
+            `${repoPrefix}-commit-${event.data.sha.substring(0, 7)}`,
+            `[${event.repository}] ` + event.data.message.split('\n')[0],
             'commit',
             event.data.message
           );
           break;
         case 'issue':
           addNode(
-            `issue-${event.data.number}`,
-            `Issue #${event.data.number}`,
+            `${repoPrefix}-issue-${event.data.number}`,
+            `[${event.repository}] Issue #${event.data.number}`,
             'issue',
             event.data.title
           );
@@ -424,38 +437,41 @@ export class WhyEngine {
 
     // 2. Second Pass: Decisions
     for (const decision of decisions) {
-      const decisionId = `decision-${decision.id}`;
+      const repoPrefix = safeRepoName(decision.repository);
+      const decisionId = `${repoPrefix}-decision-${decision.id}`;
       addNode(
         decisionId,
-        decision.decision_statement,
+        `[${decision.repository}] ` + decision.decision_statement,
         'decision',
         decision.rationale || 'Decision'
       );
 
       // Edge from decision to PR (if known)
       if (decision.related_pr_number) {
-        addEdge(decisionId, `pr-${decision.related_pr_number}`, 'made in');
+        addEdge(decisionId, `${repoPrefix}-pr-${decision.related_pr_number}`, 'made in');
       }
     }
 
     // 3. Third Pass: Relationships (Commits to PRs, Comments to PRs/Issues)
     for (const event of events) {
+      const repoPrefix = safeRepoName(event.repository);
+
       if (event.type === 'pr_comment' || event.type === 'pr_review') {
-        if (nodeIds.has(`pr-${event.data.pr_number}`)) {
+        if (nodeIds.has(`${repoPrefix}-pr-${event.data.pr_number}`)) {
           // We don't always create nodes for every single comment to keep the graph clean,
           // but we could. For now, we'll just link the comment author to the PR.
           const authorId = `author-${event.data.author}`;
           addNode(authorId, event.data.author, 'author', `User: ${event.data.author}`);
-          addEdge(authorId, `pr-${event.data.pr_number}`, 'commented on');
+          addEdge(authorId, `${repoPrefix}-pr-${event.data.pr_number}`, 'commented on');
         }
       } else if (event.type === 'pull_request') {
         const authorId = `author-${event.data.author}`;
         addNode(authorId, event.data.author, 'author', `User: ${event.data.author}`);
-        addEdge(authorId, `pr-${event.data.number}`, 'opened');
+        addEdge(authorId, `${repoPrefix}-pr-${event.data.number}`, 'opened');
       } else if (event.type === 'commit') {
         const authorId = `author-${event.data.author}`;
         addNode(authorId, event.data.author, 'author', `User: ${event.data.author}`);
-        addEdge(authorId, `commit-${event.data.sha.substring(0, 7)}`, 'authored');
+        addEdge(authorId, `${repoPrefix}-commit-${event.data.sha.substring(0, 7)}`, 'authored');
 
         // Try to link commits to PRs (this is simplistic; typically commits belong to PRs)
         // GitHub API doesn't always provide this cleanly in the events we stored, 
@@ -463,13 +479,13 @@ export class WhyEngine {
         const msg = event.data.message || '';
         const prMatch = msg.match(/#(\\d+)/);
         if (prMatch) {
-          addEdge(`commit-${event.data.sha.substring(0, 7)}`, `pr-${prMatch[1]}`, 'references');
-          addEdge(`commit-${event.data.sha.substring(0, 7)}`, `issue-${prMatch[1]}`, 'references');
+          addEdge(`${repoPrefix}-commit-${event.data.sha.substring(0, 7)}`, `${repoPrefix}-pr-${prMatch[1]}`, 'references');
+          addEdge(`${repoPrefix}-commit-${event.data.sha.substring(0, 7)}`, `${repoPrefix}-issue-${prMatch[1]}`, 'references');
         }
       } else if (event.type === 'issue') {
         const authorId = `author-${event.data.author}`;
         addNode(authorId, event.data.author, 'author', `User: ${event.data.author}`);
-        addEdge(authorId, `issue-${event.data.number}`, 'opened');
+        addEdge(authorId, `${repoPrefix}-issue-${event.data.number}`, 'opened');
       }
     }
 

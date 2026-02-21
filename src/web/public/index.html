@@ -476,9 +476,11 @@
                     const repos = await response.json();
 
                     if (repos.length > 0) {
-                        this.repoSelect.innerHTML = repos.map(repo =>
+                        let optionsHtml = `<option value="">All Repositories</option>`;
+                        optionsHtml += repos.map(repo =>
                             `<option value="${repo.name}">${repo.name} (${repo.event_count} events)</option>`
                         ).join('');
+                        this.repoSelect.innerHTML = optionsHtml;
                         this.repoSelectContainer.style.display = 'block';
                     }
                 } catch (error) {
@@ -525,19 +527,19 @@
 
             async loadGraph() {
                 const repository = this.repoSelect.value;
-                if (!repository) {
-                    alert('Please select a repository first');
-                    return;
-                }
 
                 this.showLoading('Loading graph data...');
                 this.resultsContainer.style.display = 'none';
                 this.graphContainer.style.display = 'block';
-                this.resultsHeading.textContent = `Dependency Graph for ${repository}`;
+                this.resultsHeading.textContent = repository ? `Dependency Graph for ${repository}` : 'Global Dependency Graph';
                 this.resultsCount.textContent = '';
 
                 try {
-                    const response = await fetch(`/api/graph/${encodeURIComponent(repository)}`);
+                    let url = '/api/graph';
+                    if (repository) {
+                        url += `?repo=${encodeURIComponent(repository)}`;
+                    }
+                    const response = await fetch(url);
                     const graphData = await response.json();
 
                     this.renderGraph(graphData);

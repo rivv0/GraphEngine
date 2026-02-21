@@ -120,12 +120,12 @@ export class WhyServer {
     });
 
     // Get graph nodes and edges for visualizing relationships
-    this.app.get('/api/graph/:repository', async (req, res) => {
+    this.app.get('/api/graph', async (req, res) => {
       try {
-        const { repository } = req.params;
-        const decodedRepo = decodeURIComponent(repository);
+        const repoParam = req.query.repo;
+        const repository = repoParam ? decodeURIComponent(repoParam) : null;
 
-        const graphData = await this.whyEngine.getGraphData(decodedRepo);
+        const graphData = await this.whyEngine.getGraphData(repository);
         res.json(graphData);
       } catch (error) {
         console.error('Graph data error:', error);
